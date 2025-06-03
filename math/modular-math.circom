@@ -1,7 +1,7 @@
 
 include "../node_modules/circomlib/circuits/comparators.circom";
 // Given nonnegative a and m returns a mod m
-template modularReduction(nBits) {
+template ModularReduction(nBits) {
     signal input a;
     signal input m;
     signal output out;
@@ -21,33 +21,33 @@ template modularReduction(nBits) {
     ltm.out === 1;
 }
 
-template modularAddition(nBits) {
+template ModularAddition(nBits) {
     signal input a;
     signal input b;
     signal input m;
     signal output c;
     signal int1;
     int1 <== a+b;
-    component modRed = modularReduction(nBits);
+    component modRed = ModularReduction(nBits);
     modRed.a <== int1;
     modRed.m <== m;
     c <== modRed.out;
 }
 
-template modularMultiplication(nBits) {
+template ModularMultiplication(nBits) {
     signal input a;
     signal input b;
     signal input m;
     signal output out;
     signal int1;
     int1 <== a*b;
-    component modRed = modularReduction(nBits);
+    component modRed = ModularReduction(nBits);
     modRed.a <== int1;
     modRed.m <== m;
     out <== modRed.out;
 }
 
-template modularExponentiation(nExpBits, nBits) {
+template ModularExponentiation(nExpBits, nBits) {
     signal input base;
     signal input exp[nExpBits];
     signal input m;
@@ -69,19 +69,16 @@ template modularExponentiation(nExpBits, nBits) {
     tmp2Red[0] <== 1;
     for (var i = 0; i < nExpBits; i++) {
         tmp[i] <== tmp2Red[i] * tmp2Red[i];
-        modRed[i] = modularReduction(nBits);
+        modRed[i] = ModularReduction(nBits);
         modRed[i].a <== tmp[i];
         modRed[i].m <== m;
         tmpRed[i] <== modRed[i].out;
         multiplier[i] <== 1 + (base-1) * exp[nExpBits - 1 - i];
         tmp2[i] <== tmpRed[i] * multiplier[i];
-        modRed2[i] = modularReduction(nBits);
+        modRed2[i] = ModularReduction(nBits);
         modRed2[i].a <== tmp2[i];
         modRed2[i].m <== m;
         tmp2Red[i+1] <== modRed2[i].out;
     }
     out <== tmp2Red[nExpBits];
 }
-
-
-component main = modularExponentiation(4, 64);

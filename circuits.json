@@ -1,0 +1,8 @@
+{
+    "math-test": {
+        "file": "math/math-test",
+        "template": "ModularMathTest",
+        "pubs": [],
+        "params": [64, 3]
+    }
+}
