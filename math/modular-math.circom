@@ -25,13 +25,13 @@ template ModularAddition(nBits) {
     signal input a;
     signal input b;
     signal input m;
-    signal output c;
+    signal output out;
     signal int1;
     int1 <== a+b;
     component modRed = ModularReduction(nBits);
     modRed.a <== int1;
     modRed.m <== m;
-    c <== modRed.out;
+    out <== modRed.out;
 }
 
 template ModularMultiplication(nBits) {
