@@ -3,4 +3,4 @@ pragma circom 2.1.0;
 
 include "../math/math-test.circom";
 
-component main = ModularMathTest(64, 3);
+component main = ModularMathTest(64, 3, 3, 3, 6);
