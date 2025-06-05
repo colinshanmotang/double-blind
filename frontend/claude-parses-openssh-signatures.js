@@ -1,7 +1,7 @@
 // RSA Signature Residue Extractor
 // Extracts the modular residue from RSA signatures
 
-import * as crypto from "crypto";
+import * as crypto from "crypto-browserify";
 
 export class RSASignatureAnalyzer {
   constructor() {

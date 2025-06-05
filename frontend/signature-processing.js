@@ -1,9 +1,7 @@
 import assert from 'assert';
 import {RSASignatureAnalyzer} from './claude-parses-openssh-signatures.js';
-import createHash from 'crypto';
 
-
-function parseRSA_SHA2_512Signature(rawSignature){
+export function parseRSA_SHA2_512Signature(rawSignature){
 
     const analyzer = new RSASignatureAnalyzer();
     const result = analyzer.analyzeRawSignature(rawSignature);
@@ -23,7 +21,7 @@ function parseRSA_SHA2_512Signature(rawSignature){
     }
 }
 
-function generatePKCS1BigInt(message, namespace, hashAlgorithm, modulusByteLength){
+export function generatePKCS1BigInt(message, namespace, hashAlgorithm, modulusByteLength){
     const analyzer = new RSASignatureAnalyzer();
     const toSign = analyzer.constructSSHSignatureBlock(message, namespace, hashAlgorithm);
     const paddedData = analyzer.pkcs1Encode(toSign, modulusByteLength, hashAlgorithm);
@@ -31,7 +29,7 @@ function generatePKCS1BigInt(message, namespace, hashAlgorithm, modulusByteLengt
     return analyzer.bufferToBigInt(paddedData);
 }
 
-function generateDefaultPKCS1BigInts(){
+export function generateDefaultPKCS1BigInts(){
     const message = "E PLURIBUS UNUM; DO NOT SHARE";
     const namespace = "double-blind.xyz";
     const hashAlgorithm = "SHA-512";
@@ -42,7 +40,7 @@ function generateDefaultPKCS1BigInts(){
     ]
 }
 
-function parseSSHRSAPublicKey(rawPublicKey){
+export function parseSSHRSAPublicKey(rawPublicKey){
     const analyzer = new RSASignatureAnalyzer();
     const result = analyzer.parseRawSSHPublicKey(rawPublicKey);
     assert.equal(result.algorithm, "ssh-rsa");
@@ -95,3 +93,5 @@ console.log("New residue: ", claimedMessage);
 assert(defaults.includes(claimedMessage));
 //assert(result.signatureAnalysis.analysis.residueHex === analyzer.bigIntToBuffer(pkcs1Encoding, 512).toString('hex'));
 //assert(pkcs1Encoding === result.signatureAnalysis.modularResidue.residueBigInt);
+
+//module.exports = {parseRSA_SHA2_512Signature, parseSSHRSAPublicKey, generateDefaultPKCS1BigInts, generatePKCS1BigInt};

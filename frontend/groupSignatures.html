@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <title>Snarkjs client example</title>
+  <!-- Add this script before any other scripts -->
+  <script>
+    window.global = window;
+  </script>
+  <script src="https://bundle.run/buffer@6.0.3"></script>
+</head>
+<body>
+
+  <h1>RSA group signature verifier</h1>
+
+ <textarea name="Input signature here" cols="40" rows="5" id="input-signature">signature</textarea>
+
+ <textarea name="Input public keys here" cols="40" rows="5" id="input-public-keys">public keys</textarea>
+
+  <button id="bGenProof"> Create proof </button>
+
+  <textarea name="Input proof here" cols="40" rows="5" id="input-proof">proof</textarea>
+
+  <textarea name="Input public inputs here" cols="40" rows="5" id="input-public">public</textarea>
+
+  <button id="VerifyProof"> Verify proof </button>
+
+  <!-- JS-generated output will be added here. -->
+  <pre class="proof"> Proof: <br> <code id="proof"></code></pre>
+
+  <pre class="proof"> Public inputs: <br> <code id="public"></code></pre>
+
+  <pre class="proof"> Result: <br> <code id="result"></code></pre>
+
+
+  <script src="snarkjs.min.js"></script>
+  <!-- Change the script type from module to regular script -->
+  <script src="../dist/bundle.js"></script>
+
+</body>
+</html>
