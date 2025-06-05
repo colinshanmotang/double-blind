@@ -1,10 +1,9 @@
 // RSA Signature Residue Extractor
 // Extracts the modular residue from RSA signatures
 
-const NodeRSA = require('node-rsa');
-const crypto = require('crypto');
+import * as crypto from "crypto";
 
-class RSASignatureAnalyzer {
+export class RSASignatureAnalyzer {
   constructor() {
     this.textEncoder = new TextEncoder();
     this.textDecoder = new TextDecoder();
@@ -84,7 +83,8 @@ class RSASignatureAnalyzer {
       namespace: namespace,
       hashAlgorithm: hashAlgorithm,
       signatureAlgorithm: signatureAlgorithm,
-      signatureBytes: actualSignatureBytes
+      signatureBytes: actualSignatureBytes,
+      signatureBigInt: this.bufferToBigInt(Buffer.from(actualSignatureBytes))
     };
   }
 
@@ -131,28 +131,20 @@ class RSASignatureAnalyzer {
     const modulusBuffer = Buffer.from(modulusBytes);
     const exponentBuffer = Buffer.from(cleanExponentBytes);
     
-    // Convert exponent to number (it's usually 65537)
-    let exponentNumber = 0;
-    for (let i = 0; i < cleanExponentBytes.length; i++) {
-      exponentNumber = (exponentNumber << 8) + cleanExponentBytes[i];
-    }
 
     return {
       modulus: modulusBuffer,
-      exponent: exponentNumber,
+      exponent: exponentBuffer,
       modulusBigInt: this.bufferToBigInt(modulusBuffer),
-      exponentBigInt: BigInt(exponentNumber)
+      exponentBigInt: this.bufferToBigInt(exponentBuffer)
     };
   }
 
   // Convert signature to modular residue: signature^e mod n
-  extractModularResidue(signatureBytes, rsaComponents) {
-    // Convert signature to BigInt
-    const signatureBigInt = this.bufferToBigInt(Buffer.from(signatureBytes));
-    
+  extractModularResidue(signatureBigInt, rsaComponents) {    
     // Perform modular exponentiation: s^e mod n
     const residue = this.modPow(signatureBigInt, rsaComponents.exponentBigInt, rsaComponents.modulusBigInt);
-    
+
     return {
       residueBigInt: residue,
       residueHex: residue.toString(16),
@@ -244,7 +236,7 @@ class RSASignatureAnalyzer {
     const rsaComponents = this.extractRSAComponents(signatureInfo.publicKey);
     
     // Extract modular residue
-    const residueInfo = this.extractModularResidue(signatureInfo.signatureBytes, rsaComponents);
+    const residueInfo = this.extractModularResidue(signatureInfo.signatureBigInt, rsaComponents);
     
     // Analyze the residue structure
     const residueAnalysis = this.analyzePKCS1Residue(residueInfo.residueBuffer);
@@ -260,18 +252,19 @@ class RSASignatureAnalyzer {
       },
       signature: {
         hex: Buffer.from(signatureInfo.signatureBytes).toString('hex'),
+        bigInt: signatureInfo.signatureBigInt,
         length: signatureInfo.signatureBytes.length
       },
       rsaComponents: {
         modulusHex: rsaComponents.modulus.toString('hex'),
         modulusLength: rsaComponents.modulus.length,
-        modulusBigInt: rsaComponents.modulusBigInt.toString(),
-        exponent: rsaComponents.exponent
+        modulusBigInt: rsaComponents.modulusBigInt,
+        exponentBigInt: rsaComponents.exponentBigInt
       },
       modularResidue: {
         hex: residueInfo.residueHex,
         length: residueInfo.residueBuffer.length,
-        residueBigInt: residueInfo.residueBigInt.toString()
+        residueBigInt: residueInfo.residueBigInt
       },
       analysis: {
         valid: residueAnalysis.valid,
@@ -280,6 +273,179 @@ class RSASignatureAnalyzer {
         hashHex: residueAnalysis.hash ? residueAnalysis.hash.toString('hex') : null,
         residueHex: residueAnalysis.hex
       }
+    };
+  }
+
+  // Perform PKCS#1 v1.5 signature padding on a block
+  pkcs1Encode(dataToSign, modulusByteLength, hashAlgorithm) {
+    // Hash the data to sign
+    const nodeHashAlgo = this.mapHashAlgorithm(hashAlgorithm);
+    const hash = crypto.createHash(nodeHashAlgo).update(dataToSign).digest();
+    
+    // ASN.1 DigestInfo prefixes for different hash algorithms
+    const digestInfoPrefixes = {
+      'SHA-1': Buffer.from([
+        0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+      ]),
+      'SHA-256': Buffer.from([
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20
+      ]),
+      'SHA-384': Buffer.from([
+        0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30
+      ]),
+      'SHA-512': Buffer.from([
+        0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40
+      ])
+    };
+    
+    const digestPrefix = digestInfoPrefixes[hashAlgorithm];
+    if (!digestPrefix) {
+      throw new Error(`Unsupported hash algorithm for PKCS#1 encoding: ${hashAlgorithm}`);
+    }
+    
+    // Construct DigestInfo: prefix + hash
+    const digestInfo = Buffer.concat([digestPrefix, hash]);
+    
+    // Calculate padding length
+    // Format: 0x00 || 0x01 || PS || 0x00 || DigestInfo
+    // where PS is padding of 0xFF bytes
+    const paddingLength = modulusByteLength - digestInfo.length - 3; // -3 for 0x00, 0x01, 0x00
+    
+    if (paddingLength < 8) {
+      throw new Error('Modulus too short for PKCS#1 padding');
+    }
+    
+    // Construct the padded message
+    const paddedMessage = Buffer.alloc(modulusByteLength);
+    let offset = 0;
+    
+    // 0x00 byte
+    paddedMessage[offset++] = 0x00;
+    
+    // 0x01 byte  
+    paddedMessage[offset++] = 0x01;
+    
+    // Padding of 0xFF bytes
+    for (let i = 0; i < paddingLength; i++) {
+      paddedMessage[offset++] = 0xFF;
+    }
+    
+    // Separator 0x00 byte
+    paddedMessage[offset++] = 0x00;
+    
+    // DigestInfo
+    digestInfo.copy(paddedMessage, offset);
+    
+    // return {
+    //   paddedMessage: paddedMessage,
+    //   paddedMessageHex: paddedMessage.toString('hex'),
+    //   paddedMessageBigInt: this.bufferToBigInt(paddedMessage),
+    //   hash: hash,
+    //   hashHex: hash.toString('hex'),
+    //   digestInfo: digestInfo,
+    //   digestInfoHex: digestInfo.toString('hex'),
+    //   paddingLength: paddingLength
+    // };
+    return paddedMessage;
+  }
+
+  // Parse raw SSH RSA public key and extract components
+  parseRawSSHPublicKey(rawPublicKey) {
+    // Remove any leading/trailing whitespace
+    const cleaned = rawPublicKey.trim();
+    
+    // Split by whitespace to get parts: [algorithm, base64_key, comment]
+    const parts = cleaned.split(/\s+/);
+    
+    if (parts.length < 2) {
+      throw new Error('Invalid SSH public key format');
+    }
+    
+    const algorithm = parts[0];
+    const base64Key = parts[1];
+    // parts[2] would be the comment if present
+    
+    if (algorithm !== 'ssh-rsa') {
+      throw new Error(`Expected ssh-rsa algorithm, got: ${algorithm}`);
+    }
+    
+    // Validate base64 format
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Key)) {
+      throw new Error('Invalid base64 content in public key');
+    }
+    
+    // Parse the base64 key data
+    const keyBuffer = Buffer.from(base64Key, 'base64');
+    
+    // Extract RSA components using existing function
+    const components = this.extractRSAComponents(keyBuffer);
+    
+    return {
+      algorithm: algorithm,
+      modulusBigInt: components.modulusBigInt,
+      exponent: components.exponent,
+      modulusHex: components.modulus.toString('hex'),
+      exponentBigInt: components.exponentBigInt,
+      comment: parts.length > 2 ? parts.slice(2).join(' ') : null
+    };
+  }
+
+  // Parse raw SSH signature format with BEGIN/END headers
+  parseRawSSHSignature(rawSignature) {
+    // Remove any leading/trailing whitespace
+    const cleaned = rawSignature.trim();
+    
+    // Check for proper BEGIN/END headers
+    const beginHeader = '-----BEGIN SSH SIGNATURE-----';
+    const endHeader = '-----END SSH SIGNATURE-----';
+    
+    if (!cleaned.startsWith(beginHeader)) {
+      throw new Error('Missing BEGIN SSH SIGNATURE header');
+    }
+    
+    if (!cleaned.endsWith(endHeader)) {
+      throw new Error('Missing END SSH SIGNATURE header');
+    }
+    
+    // Extract the base64 content between headers
+    const headerStart = cleaned.indexOf(beginHeader) + beginHeader.length;
+    const headerEnd = cleaned.lastIndexOf(endHeader);
+    
+    if (headerStart >= headerEnd) {
+      throw new Error('Invalid signature format: headers overlap');
+    }
+    
+    const base64Content = cleaned.substring(headerStart, headerEnd);
+    
+    // Remove all whitespace (newlines, spaces, etc.) from base64 content
+    const cleanBase64 = base64Content.replace(/\s/g, '');
+    
+    // Validate base64 format
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+      throw new Error('Invalid base64 content in signature');
+    }
+    
+    return cleanBase64;
+  }
+
+  // Analyze a raw SSH signature (with headers) and optionally verify against a message
+  analyzeRawSignature(rawSignature, message = null, encoding = 'utf8') {
+    // Parse the raw signature to get clean base64
+    const base64Signature = this.parseRawSSHSignature(rawSignature);
+    
+    // Analyze the signature
+    const analysis = this.analyzeSignature(base64Signature);
+    
+    // If message is provided, also verify it
+    let verification = null;
+    if (message !== null) {
+      verification = this.verifyMessage(base64Signature, message, encoding);
+    }
+    
+    return {
+      signatureAnalysis: analysis,
+      messageVerification: verification,
+      parsedBase64: base64Signature
     };
   }
 
@@ -469,25 +635,51 @@ class RSASignatureAnalyzer {
   }
 }
 
-// Example usage
-const analyzer = new RSASignatureAnalyzer();
+function testRSASignatureAnalyzer(){
+  // Example usage
+  const analyzer = new RSASignatureAnalyzer();
 
-// Example (replace with actual values)
-const opensshSignature = "U1NIU0lHAAAAAQAAAhcAAAAHc3NoLXJzYQAAAAMBAAEAAAIBALiE08Ltl3Rz5Irk/auYYW5oyfPKrtfgorcMj/+meP4F8cqsnbWZN6P3hXgAmkEowUo/3h8QJRj1Ld5K3X8LQj8UbjhurxdnYW7BkZP14h/KTY5T4FJi8GbEJUC8dCQ2ijnlmz2K/EVE7GzJ9S06PsI6aPatxfRsstPdlhnnLrYJEe7P0jbmOB4rsT3WgJRl3INFC3pKdR65u1dGftRVZVIuU9mH9BmwxPc4GuRVdN3XoFv8jLIvnET6hmo59r+13LeLDeYGDsVKGoh2JwwfoRjJzb99+AAykE11ETi97aPxAj0VqRu4T35LrgprYOF1kRkwLgUgICSZ81LTQET5dSPSmJax+XFTiXCAvPSJ4EJbXNe//MuHUedKzhjyorViCIPRj9WX+HpkGHakF3Xfq7T6q/MQh9NABEZVUUlZAVnJCVZlcf3zK+kRLb+S1AJVigHB6f2PaWR7BEiRJXyP0BxbAHxM/LjEqacbi5gspUbh0K/p6/dDy/BvxOTE2P2LwnwkAnq/O+V6J5X91L7s2oExlUUowsQyKDEp4e96iWZo71ufQF+K19373vFm9Rni+4CSUGeXc7fwcV2XE5GvKoc7NTS2ly9IPq+LbNRlb7ffdVHbEcUy//HIcod07bhhOG9MyfgAkwgGnLREm/hWxNK2b0ra4b3x6rU64FdXoZGLAAAAEGRvdWJsZS1ibGluZC54eXoAAAAAAAAABnNoYTUxMgAAAhQAAAAMcnNhLXNoYTItNTEyAAACAHZMWfhAgL46al9AgXoZN7Ug9IP4ifP7+bs92sPKjucnUXNpLPsu6zKPkwu1F75HM+M6S1MiJvFC0WFbc6jNIVV+GRa/ok5sqMFwSqxmEHEJDLXRvQWGqgDbiPpznnvSKpq+46UYD9uqFm3+qwrr4a4iad5kVj8y3mrYbx3LTf6yBLpqXAe6GMkDaIpiJtQy6VYeSi/LlNMnHJAc6hnwdt5heITDbgqfrRKHYWKMTM5ov0GsQBliHsxtD6169pw8/hqtrMLB8zeOSPUozFXJdnXrfdFJCMC+8z8NlbdmAG+D1huxTFVaA6Rl9u3TBx3H7km+FasO07j6kMLMsnXSSSrjWWNE8x3bAHEtA2LrzVzZdNmetyAwaBGRuX7twWa3OFpx27h9DLbU0WNiCCJZLqFyfxjqsgbFwSUE2c2ciRf4ieV8lk5rrUhcgf6ycfexKKQV+PujvpJ+3MzBlKbCbo48DsERiAM4mtTcWOAYl4tlY8W5ahtlGDfSvQbucw6FwCWumrvPFscyAQ/CKN1XJ5segzA1U4O4Rdbnt4IEW/vei2Fi21eNiR55J5peUthAaLqbr6JRBKEVg+KmPpxk5rL0ryZ9LK6WBBt36sE0yOIF3RonErbqt2zuQdWm4/rXVYS7qxrhNR527AMSOzvwHYaRLB2tnjkAMjgc2Ypcb76r"; // Your base64 signature
+  // Example (replace with actual values)
+  // const opensshSignature = "AAAAB3NzaC1yc2EAAAB..."; // Your base64 signature
 
-// Analyze signature
-// const analysis = analyzer.analyzeSignature(opensshSignature);
-// console.log('Complete analysis:', JSON.stringify(analysis, null, 2));
+  // Analyze signature
+  // const analysis = analyzer.analyzeSignature(opensshSignature);
+  // console.log('Complete analysis:', JSON.stringify(analysis, null, 2));
 
-// Verify a message against the signature
-const message = "E PLURIBUS UNUM; DO NOT SHARE";
-//const verification = analyzer.verifyMessage(opensshSignature, message);
-//console.log('Verification result:', JSON.stringify(verification, null, 2));
+  // Verify a message against the signature
+  // const message = "Hello, World!";
+  // const verification = analyzer.verifyMessage(opensshSignature, message);
+  // console.log('Verification result:', JSON.stringify(verification, null, 2));
 
-// Or try to find the correct message variation
-const messageSearch = analyzer.findMatchingMessage(opensshSignature, message);
-console.log('Message search result:', JSON.stringify(messageSearch, null, 2));
+  // Analyze a raw SSH signature file
+  const rawSig = `-----BEGIN SSH SIGNATURE-----
+  U1NIU0lHAAAAAQAAAhcAAAAHc3NoLXJzYQAAAAMBAAEAAAIBALiE08Ltl3Rz5Irk/auYYW
+  5oyfPKrtfgorcMj/+meP4F8cqsnbWZN6P3hXgAmkEowUo/3h8QJRj1Ld5K3X8LQj8Ubjhu
+  rxdnYW7BkZP14h/KTY5T4FJi8GbEJUC8dCQ2ijnlmz2K/EVE7GzJ9S06PsI6aPatxfRsst
+  PdlhnnLrYJEe7P0jbmOB4rsT3WgJRl3INFC3pKdR65u1dGftRVZVIuU9mH9BmwxPc4GuRV
+  dN3XoFv8jLIvnET6hmo59r+13LeLDeYGDsVKGoh2JwwfoRjJzb99+AAykE11ETi97aPxAj
+  0VqRu4T35LrgprYOF1kRkwLgUgICSZ81LTQET5dSPSmJax+XFTiXCAvPSJ4EJbXNe//MuH
+  UedKzhjyorViCIPRj9WX+HpkGHakF3Xfq7T6q/MQh9NABEZVUUlZAVnJCVZlcf3zK+kRLb
+  +S1AJVigHB6f2PaWR7BEiRJXyP0BxbAHxM/LjEqacbi5gspUbh0K/p6/dDy/BvxOTE2P2L
+  wnwkAnq/O+V6J5X91L7s2oExlUUowsQyKDEp4e96iWZo71ufQF+K19373vFm9Rni+4CSUG
+  eXc7fwcV2XE5GvKoc7NTS2ly9IPq+LbNRlb7ffdVHbEcUy//HIcod07bhhOG9MyfgAkwgG
+  nLREm/hWxNK2b0ra4b3x6rU64FdXoZGLAAAAEGRvdWJsZS1ibGluZC54eXoAAAAAAAAABn
+  NoYTUxMgAAAhQAAAAMcnNhLXNoYTItNTEyAAACAD3agNoFpdXfFPo9CTWesRLrS/xRNPpn
+  BSbdODyZCDMlBITlUyp78Hfv+H42KB89hRaIodcgH2FemTMPDhfhjswAuJH0pb/0ueVaCk
+  CfUw2JDGj8G7D9W/bV+XGslcB7x2nMhLXcrXpE+fXHUSWXdCTdfsJN/NAwx9pIWisiymrA
+  pqF24d9FZWSR+l9AT/aO/Q8E6LEMD6Ssx0zwvJewDbnwfDrJahRASJfUKeBU2EGWdnJr07
+  TWCMAj8GB+xh7G8rEAEouW5Me8sisD7e69KjdiXwNXugYlXjoLUpm1fowJNogcyG9v3Txj
+  XOt/s5t6W935+aE/Io+w7hv8Gfq+NrFaTjYEPHyzJeB5QPYSaxfUFTXaL+n/Y+eskeQLKb
+  TV+N06w95HH53xRyclQHaj1nIPgH2TUEVFh60hrTB1i/LXY9LYR2fPK49Hj4J/luqobq/B
+  gCAgexu4sHdBEsBQh/nlZze9+DAUJXr/56+rOaHAvE1pD1ZsqYLxqIMddaT6CVT/7EQZEM
+  K1xQMCChufjF3ErdO0UBrwPiJcJihUYZbMk8X75XzINnD0aH9XsKF1/zXQ4ZSspZBZZG7D
+  KPOVWdDa6YF18H4OmXhJQBdCgcKPlhzs3zS5rrBHRcM1jg9mlQLN2CoGIKOeJzQhc39yak
+  FGhcwCYpw/EE5AwfKXSqdk
+  -----END SSH SIGNATURE-----`;
+  const result = analyzer.analyzeRawSignature(rawSig, "custom message. hello 0xparc\r\n");
+  console.log('Raw signature analysis:', JSON.stringify(result, null, 2));
 
-//console.log('RSA Signature Analyzer ready for use');
 
-module.exports = RSASignatureAnalyzer;
+  // console.log('RSA Signature Analyzer ready for use');
+
+}
