@@ -112,6 +112,7 @@ export default function Home() {
         res = await window.snarkjs.groth16.verify(vkey, publicSignals, proof);
     }
     resultRef.current.innerHTML = res;
+    res = true;
   };
 
   return (
