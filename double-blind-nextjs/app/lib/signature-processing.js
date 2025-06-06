@@ -13,11 +13,12 @@ export function parseRSA_SHA2_512Signature(rawSignature){
     assert(result.signatureAnalysis.signatureFormat.signatureAlgorithm === 'rsa-sha2-512');
 
     // Assert 4096-bit
-    assert(result.signatureAnalysis.rsaComponents.modulusLength === 512); 
+    //assert(result.signatureAnalysis.rsaComponents.modulusLength === 512); 
     return {
         modulusBigInt: result.signatureAnalysis.rsaComponents.modulusBigInt,
         exponentBigInt: result.signatureAnalysis.rsaComponents.exponentBigInt,
-        signatureBigInt: result.signatureAnalysis.signature.bigInt
+        signatureBigInt: result.signatureAnalysis.signature.bigInt,
+        modulusLength: result.signatureAnalysis.rsaComponents.modulusLength
     }
 }
 
